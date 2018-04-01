@@ -9,8 +9,9 @@ from keras import backend as K
 import numpy as np
 from PIL import Image
 import os
+import matplotlib.pyplot as plt
 
-from keras_text_to_image.library.utility.glove_loader import GloveModel
+#from keras_text_to_image.library.utility.glove_loader import GloveModel
 
 
 class DCGanV3(object):
@@ -21,14 +22,14 @@ class DCGanV3(object):
         self.generator = None
         self.discriminator = None
         self.model = None
-        self.img_width = 7
-        self.img_height = 7
-        self.img_channels = 1
+        self.img_width = 64
+        self.img_height = 64
+        self.img_channels = 3
         self.random_input_dim = 100
-        self.text_input_dim = 100
+        self.text_input_dim = 4800
         self.config = None
-        self.glove_source_dir_path = './very_large_data'
-        self.glove_model = GloveModel()
+        #self.glove_source_dir_path = './very_large_data'
+        #self.glove_model = GloveModel()
 
     @staticmethod
     def get_config_file_path(model_dir_path):
@@ -113,9 +114,9 @@ class DCGanV3(object):
         self.img_channels = self.config['img_channels']
         self.random_input_dim = self.config['random_input_dim']
         self.text_input_dim = self.config['text_input_dim']
-        self.glove_source_dir_path = self.config['glove_source_dir_path']
+        #self.glove_source_dir_path = self.config['glove_source_dir_path']
         self.create_model()
-        self.glove_model.load(self.glove_source_dir_path, embedding_dim=self.text_input_dim)
+        #self.glove_model.load(self.glove_source_dir_path, embedding_dim=self.text_input_dim)
         self.generator.load_weights(DCGanV3.get_weight_file_path(model_dir_path, 'generator'))
         self.discriminator.load_weights(DCGanV3.get_weight_file_path(model_dir_path, 'discriminator'))
 
@@ -136,9 +137,9 @@ class DCGanV3(object):
         self.config['random_input_dim'] = self.random_input_dim
         self.config['text_input_dim'] = self.text_input_dim
         self.config['img_channels'] = self.img_channels
-        self.config['glove_source_dir_path'] = self.glove_source_dir_path
+        #self.config['glove_source_dir_path'] = self.glove_source_dir_path
 
-        self.glove_model.load(data_dir_path=self.glove_source_dir_path, embedding_dim=self.text_input_dim)
+        #self.glove_model.load(data_dir_path=self.glove_source_dir_path, embedding_dim=self.text_input_dim)
 
         config_file_path = DCGanV3.get_config_file_path(model_dir_path)
 
@@ -148,6 +149,9 @@ class DCGanV3(object):
 
         self.create_model()
 
+	
+	desc_plot = []
+	gen_plot = []
         for epoch in range(epochs):
             print("Epoch is", epoch)
             batch_count = int(image_label_pairs.shape[0] / batch_size)
@@ -161,9 +165,9 @@ class DCGanV3(object):
                 for index in range(batch_size):
                     image_label_pair = image_label_pair_batch[index]
                     normalized_img = image_label_pair[0]
-                    text = image_label_pair[1]
+                    #text = image_label_pair[1]
                     image_batch.append(normalized_img)
-                    text_batch[index, :] = self.glove_model.encode_doc(text, self.text_input_dim)
+                    text_batch[index, :] = image_label_pair[1] #self.glove_model.encode_doc(text, self.text_input_dim)
                     noise[index, :] = np.random.uniform(-1, 1, self.random_input_dim)
 
                 image_batch = np.array(image_batch)
@@ -179,7 +183,7 @@ class DCGanV3(object):
                 d_loss = self.discriminator.train_on_batch([np.concatenate((image_batch, generated_images)),
                                                             np.concatenate((text_batch, text_batch))],
                                                            np.array([1] * batch_size + [0] * batch_size))
-                print("Epoch %d batch %d d_loss : %f" % (epoch, batch_index, d_loss))
+                #print("Epoch %d batch %d d_loss : %f" % (epoch, batch_index, d_loss))
 
                 # Step 2: train the generator
                 for index in range(batch_size):
@@ -187,10 +191,21 @@ class DCGanV3(object):
                 self.discriminator.trainable = False
                 g_loss = self.model.train_on_batch([noise, text_batch], np.array([1] * batch_size))
 
-                print("Epoch %d batch %d g_loss : %f" % (epoch, batch_index, g_loss))
+                print("Epoch %d batch %d/%d\ng_loss : %f, d_loss: %f" % (epoch, batch_index, batch_count-1, g_loss, d_loss))
+		
+
+		desc_plot.append(d_loss)
+		gen_plot.append(g_loss)
+
                 if (epoch * batch_size + batch_index) % 10 == 9:
                     self.generator.save_weights(DCGanV3.get_weight_file_path(model_dir_path, 'generator'), True)
                     self.discriminator.save_weights(DCGanV3.get_weight_file_path(model_dir_path, 'discriminator'), True)
+		    plt.plot(desc_plot)
+		    plt.plot(gen_plot)
+		    plt.title('Generator and Descriminator losses in epoch ' + str(epoch))
+		    plt.legend(['desc','gen'],loc= 'upper left')
+		    plt.savefig('data/plot')
+		    plt.close()
 
         self.generator.save_weights(DCGanV3.get_weight_file_path(model_dir_path, 'generator'), True)
         self.discriminator.save_weights(DCGanV3.get_weight_file_path(model_dir_path, 'discriminator'), True)
@@ -198,7 +213,7 @@ class DCGanV3(object):
     def generate_image_from_text(self, text):
         noise = np.zeros(shape=(1, self.random_input_dim))
         encoded_text = np.zeros(shape=(1, self.text_input_dim))
-        encoded_text[0, :] = self.glove_model.encode_doc(text)
+        encoded_text[0, :] = text #self.glove_model.encode_doc(text)
         noise[0, :] = np.random.uniform(-1, 1, self.random_input_dim)
         generated_images = self.generator.predict([noise, encoded_text], verbose=0)
         generated_image = generated_images[0]
